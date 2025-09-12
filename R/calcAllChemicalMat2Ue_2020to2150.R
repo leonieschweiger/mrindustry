@@ -21,19 +21,22 @@ calcAllChemicalMat2Ue_2020to2150 <- function() {
   
   # ---------------------------------------------------------------------------
   # Retrieve Chemical production projections for 2020-2050 (extrapolate between 2017 and 2025 if 2020 is missing)
-  # - total Chemical UE projection from calcFeDemandIndustry
+  # - Fertilizer demand projections from MagPie (for different combinations of SSP and RCP as defined by cm_LU_emi_scen and cm_rcp_scen switches in REMIND)
   # - Methanol, HVC & Ammonia projections from IEA_Petrochem
-  # - Fertilizer demand projections from MagPie
+  # - total Chemical UE projection from calcFeDemandIndustry
   # and calculate change compared to baseline year
   # ---------------------------------------------------------------------------
-  
-  feIndustry <- calcOutput("FeDemandIndustry", scenarios=c("SSP2"), warnNA = FALSE, aggregate = TRUE)[,, "SSP2.ue_chemicals"] %>%
-    as.data.frame() %>%
-    select(-"Cell") %>%
-    mutate(Year = as.numeric(as.character(.data$Year))) %>%   # Convert factor to character then numeric
-    group_by(.data$Region) %>%
+  MagPie_Fert <- calcOutput("MAgPIEReport", subtype="fertilizer")%>%
+    as.data.frame()%>%
+    select(-"Cell")%>%
+    rename(SSP = "Data1", RCP = "Data2") %>%
+    mutate(Year = as.numeric(as.character(.data$Year))) %>%
+    group_by(.data$Region, .data$SSP, .data$RCP) %>%
     mutate(Ratio = .data$Value / .data$Value[.data$Year == 2020]) %>%
-    ungroup()
+    ungroup() %>%
+    mutate(Data1 = "fertilizer")
+  
+  scenarios <- MagPie_Fert %>% select("SSP", "RCP") %>% distinct()
   
   IEA_Petrochem_methanol <- calcOutput("IEA_Petrochem", subtype ="production5type_Methanol", aggregate = TRUE)[,,] %>%
     as.data.frame() %>%
@@ -54,7 +57,8 @@ calcAllChemicalMat2Ue_2020to2150 <- function() {
     mutate(Ratio = .data$Value / .data$Value[.data$Year == 2020]) %>%
     ungroup()%>%
     mutate(Data1 = "methanol") %>%
-    filter(!.data$Year %in% 2017)
+    filter(!.data$Year %in% 2017) %>%
+    crossing(scenarios)
   
   IEA_Petrochem_ammonia <- calcOutput("IEA_Petrochem", subtype ="production5type_Ammonia", aggregate = TRUE)[,,] %>%
     as.data.frame() %>%
@@ -75,7 +79,8 @@ calcAllChemicalMat2Ue_2020to2150 <- function() {
     mutate(Ratio = .data$Value / .data$Value[.data$Year == 2020]) %>%
     ungroup()%>%
     mutate(Data1 = "ammonia") %>%
-    filter(!.data$Year %in% 2017)
+    filter(!.data$Year %in% 2017) %>%
+    crossing(scenarios)
   
   IEA_Petrochem_hvc <- (
     calcOutput("IEA_Petrochem", subtype = "production5type_Ethylene", aggregate = TRUE) +
@@ -100,22 +105,27 @@ calcAllChemicalMat2Ue_2020to2150 <- function() {
     mutate(Ratio = .data$Value / .data$Value[.data$Year == 2020]) %>%
     ungroup()%>%
     mutate(Data1 = "hvc") %>%
-    filter(!.data$Year %in% 2017)
+    filter(!.data$Year %in% 2017) %>%
+    crossing(scenarios)
   
-  MagPie_Fert <- calcOutput("MAgPIEReport", subtype="fertilizer")[,,"SSP2.rcp45"]%>%
-    as.data.frame()%>%
-    select(-"Cell", -"Data1", -"Data2")%>%
-    mutate(Year = as.numeric(as.character(.data$Year))) %>%
+  # scenarios that are available for the switch cm_LU_emi_scen
+  SSPs <- c("SSPs","SSP2_lowEn")
+  
+  feIndustry <- calcOutput("FeDemandIndustry", scenarios=SSPs, warnNA = FALSE, aggregate = TRUE) %>%
+    as.data.frame() %>%
+    filter(.data$Data2 == "ue_chemicals") %>%
+    select(-"Cell", -"Data2") %>%
+    rename(SSP = "Data1") %>%
+    mutate(Year = as.numeric(as.character(.data$Year))) %>%   
     group_by(.data$Region) %>%
     mutate(Ratio = .data$Value / .data$Value[.data$Year == 2020]) %>%
-    ungroup() %>%
-    mutate(Data1 = "fertilizer")
+    ungroup()
   
   # ---------------------------------------------------------------------------
   # Compute future mat2ue by dividing the baseline by the relative change in UE chemicals demand of the respective chemical
   # ---------------------------------------------------------------------------
   merged_data <- rbind(IEA_Petrochem_methanol, IEA_Petrochem_ammonia, IEA_Petrochem_hvc, MagPie_Fert) %>%
-    dplyr::left_join(feIndustry, by = c("Region", "Year"), suffix = c("", ".fe")) %>%
+    dplyr::left_join(feIndustry, by = c("Region", "Year", "SSP"), suffix = c("", ".fe")) %>%
     dplyr::mutate(fe_change = ifelse(is.nan(.data$Ratio / .data$Ratio.fe), 1, .data$Ratio / .data$Ratio.fe)) %>%
     mutate(Data1 = case_when(
       .data$Data1 == "ammonia" ~ "ammoFinal",
@@ -134,7 +144,7 @@ calcAllChemicalMat2Ue_2020to2150 <- function() {
     filter(.data$Year >= 2020) %>%
     mutate(all_in = "ue_chemicals"
     ) %>%
-    select("Region","Year","Data1","all_in","new_mat2ue")
+    select("Region","Year","Data1","all_in","new_mat2ue","SSP","RCP")
   
   x <- as.magpie(final_data, spatial = 1, temporal = 2)
   map <- toolGetMapping("regionmappingH12.csv", type = "regional", where = "mappingfolder")
