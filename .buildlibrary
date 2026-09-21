@@ -1,13 +1,14 @@
-ValidationKey: '2357730'
+ValidationKey: '2815200'
 AutocreateReadme: yes
 AcceptedWarnings:
 - 'Warning: package ''.*'' was built under R version'
 - 'Warning: namespace ''.*'' is not available and has been replaced'
 - Invalid URL: .*
 AcceptedNotes:
-- Imports includes .* non-default packages.
 - unable to verify current time
+- .* includes the non-default packages.*
 allowLinterWarnings: yes
 enforceVersionUpdate: yes
 skipCoverage: no
 AutocreateCITATION: yes
+UsePkgDown: no
